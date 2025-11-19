@@ -172,10 +172,9 @@ static int run_ping(int* argc, char* args[]){
     gettimeofday(&start_time, NULL);
     for(uint16_t i = 1; i <= pinger.opts.count; i++){
         size_t len = build_icmp_packet(&packet, i);
-        packet_stats_t pkt_stats = {0};
         sended_packet_data_t sended_data = {.id = packet.header.un.echo.id,
                                             .seq = packet.header.un.echo.sequence,
-                                            .send_time = 0
+                                            .send_time = {0}
                                            };
         received_packet_data_t received_data = {0};
 
