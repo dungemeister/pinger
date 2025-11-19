@@ -3,6 +3,7 @@ BUILD_DIR := build
 COMPILER_FLAGS := -g -O2 -Wall -Wextra -Wpedantic 
 LINKER_FLAGS := -lm
 
+DEBUG_FLAGS := ${COMPILER_FLAGS} -DDEBUG
 TESTS_BUILD_DIR := ${BUILD_DIR}/unit_tests
 TESTS_DIR := unit_tests
 
@@ -12,7 +13,7 @@ TEST_FLAGS := -g -O2
 all: ${APP} install-cap
 
 ${APP}: build_dir main.c
-	cc main.c -o ${BUILD_DIR}/${APP} ${COMPILER_FLAGS} ${LINKER_FLAGS}
+	cc main.c -o ${BUILD_DIR}/${APP} ${LINKER_FLAGS} ${DEBUG_FLAGS}
 
 .PHONY: build_dir
 build_dir:
