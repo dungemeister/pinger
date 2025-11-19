@@ -34,12 +34,23 @@
                                 } \
                                 printf("\n");\
                                 }while(0);
+#ifdef DEBUG
+    #define DEBUG_ARG_PARSER(msg, ...) printf("[ARG_PARSER]: "msg, ##__VA_ARGS__)
+#else
+    #define DEBUG_ARG_PARSER(msg, ...)
+#endif
 
 #define PINGER_DEFAULT_COUNT        (10)
 #define PINGER_DEFAULT_TTL          (64)
 #define PINGER_DEFAULT_TOS          (0x0)
 #define PINGER_DEFAULT_TIMEOUT      (1)
 #define PINGER_DEFAULT_INTERVAL     (1.f)
+
+#define PINGER_ARG_COUNT_CHAR       ("-c")
+#define PINGER_ARG_TTL_CHAR         ("-t")
+#define PINGER_ARG_TOS_CHAR         ("-Q")
+#define PINGER_ARG_TIMEOUT_CHAR     ("-w")
+#define PINGER_ARG_INTERVAL_CHAR    ("-i")
 
 static char dst_ipstr[INET6_ADDRSTRLEN];
 
@@ -178,7 +189,6 @@ static int run_ping(int* argc, char* args[]){
         received_data.buf = recv_buf;
         received_data.recv_size = received;
         received_data.recv_addr = inet_ntoa(recv_addr.sin_addr);
-
         
         if(received > 0){
             if(parse_recv_packet(&received_data, &sended_data, &pinger.stats)){
@@ -191,6 +201,9 @@ static int run_ping(int* argc, char* args[]){
                 
                 printf(" time=%.3f\n", rtt);
             }
+        }
+        else{
+            printf("no answer yet for icmp_seq=%u\n", ntohs(sended_data.seq));
         }
         float diff = (float)(received_data.recv_timestamp.tv_sec - sended_data.send_time.tv_sec);
         float sleep_interval = pinger.opts.interval - diff;
@@ -214,9 +227,52 @@ static int run_ping(int* argc, char* args[]){
 }
 
 static int parse_args(pinger_t* pinger, int* argc, char* args[]){
+    pinger->opts.ttl = PINGER_DEFAULT_TTL;
+    pinger->opts.cos = PINGER_DEFAULT_TOS;
+    pinger->opts.timeout = PINGER_DEFAULT_TIMEOUT;
+    pinger->opts.count = PINGER_DEFAULT_COUNT;
+    pinger->opts.interval = PINGER_DEFAULT_INTERVAL;
+
     char* dst_host = SHIFT_ARG(argc, args);
     uint32_t ip = 0;
     struct addrinfo* res = NULL;
+    while(*argc > 0){
+        char* arg = SHIFT_ARG(argc, args);
+        DEBUG_ARG_PARSER("arg %s\n", arg);
+        if(strcmp(PINGER_ARG_COUNT_CHAR, arg) == 0){
+            pinger->opts.count = atoi(SHIFT_ARG(argc, args));
+            assert(pinger->opts.count > 0);
+            DEBUG_ARG_PARSER("count %d\n", pinger->opts.count);
+        }
+        if(strcmp(PINGER_ARG_TOS_CHAR, arg) == 0){
+            pinger->opts.cos = atoi(SHIFT_ARG(argc, args));
+            assert(pinger->opts.cos > 0);
+            DEBUG_ARG_PARSER("tos 0x%x\n", pinger->opts.cos);
+        }
+        if(strcmp(PINGER_ARG_INTERVAL_CHAR, arg) == 0){
+            pinger->opts.interval = atof(SHIFT_ARG(argc, args));
+            assert(pinger->opts.interval > 0);
+            DEBUG_ARG_PARSER("interval %f\n", pinger->opts.interval);
+        }
+        if(strcmp(PINGER_ARG_TIMEOUT_CHAR, arg) == 0){
+            pinger->opts.timeout = atoi(SHIFT_ARG(argc, args));
+            assert(pinger->opts.timeout > 0);
+            DEBUG_ARG_PARSER("timeout %d\n", pinger->opts.timeout);
+        }
+        if(strcmp(PINGER_ARG_TTL_CHAR, arg) == 0){
+            char* value = SHIFT_ARG(argc, args);
+            char* substr = strstr(value, "0x");
+            if(substr != NULL){
+                pinger->opts.ttl = strtoul(substr, NULL, 16);
+            }
+            else{
+                pinger->opts.ttl = atoi(value);
+            }
+            DEBUG_ARG_PARSER("tos 0x%lx\n", pinger->opts.ttl);
+            assert(pinger->opts.ttl >= 0);
+            
+        }
+    }
 
     if(inet_pton(AF_INET, dst_host, &ip) == 1){
         pinger->opts.dst_ip = dst_host;
@@ -231,12 +287,6 @@ static int parse_args(pinger_t* pinger, int* argc, char* args[]){
     if(resolve_bind_address(pinger) != 0){
         return -1;
     }
-    pinger->opts.ttl = PINGER_DEFAULT_TTL;
-    pinger->opts.cos = PINGER_DEFAULT_TOS;
-    pinger->opts.timeout = PINGER_DEFAULT_TIMEOUT;
-    pinger->opts.count = PINGER_DEFAULT_COUNT;
-    pinger->opts.interval = PINGER_DEFAULT_INTERVAL;
-
     return 0;
 }
 
@@ -416,7 +466,6 @@ static bool parse_recv_packet(received_packet_data_t* recv_data, sended_packet_d
         return true;
     }
     if(recv_seq != send_data->seq || recv_id != send_data->id){
-        printf("");
         return false;
         // PRINT_BUF(recv_data->buf, recv_data->recv_size);
         // printf("received %d ", recv_data->recv_size);
@@ -529,7 +578,7 @@ static void print_pinger_statistics(pinger_stats_t* stats){
     printf("%ld packets transmitted, %ld received, %u%% packet loss, time %.3lfms\n",
             stats->transmitted,
             stats->received,
-            100,
+            (int)(1 - (float)stats->received / (float)stats->transmitted) * 100,
             stats->execution_time);
 
     printf("rtt min/avg/max/mdev = %.3f/%.3f/%.3f/%.3f ms\n",
