@@ -241,23 +241,23 @@ static int parse_args(pinger_t* pinger, int* argc, char* args[]){
         DEBUG_ARG_PARSER("arg %s\n", arg);
         if(strcmp(PINGER_ARG_COUNT_CHAR, arg) == 0){
             pinger->opts.count = atoi(SHIFT_ARG(argc, args));
+            DEBUG_ARG_PARSER("count %lu\n", pinger->opts.count);
             assert(pinger->opts.count > 0);
-            DEBUG_ARG_PARSER("count %d\n", pinger->opts.count);
         }
         if(strcmp(PINGER_ARG_TOS_CHAR, arg) == 0){
             pinger->opts.cos = atoi(SHIFT_ARG(argc, args));
+            DEBUG_ARG_PARSER("tos 0x%lx\n", pinger->opts.cos);
             assert(pinger->opts.cos > 0);
-            DEBUG_ARG_PARSER("tos 0x%x\n", pinger->opts.cos);
         }
         if(strcmp(PINGER_ARG_INTERVAL_CHAR, arg) == 0){
             pinger->opts.interval = atof(SHIFT_ARG(argc, args));
-            assert(pinger->opts.interval > 0);
             DEBUG_ARG_PARSER("interval %f\n", pinger->opts.interval);
+            assert(pinger->opts.interval > 0);
         }
         if(strcmp(PINGER_ARG_TIMEOUT_CHAR, arg) == 0){
             pinger->opts.timeout = atoi(SHIFT_ARG(argc, args));
+            DEBUG_ARG_PARSER("timeout %lu\n", pinger->opts.timeout);
             assert(pinger->opts.timeout > 0);
-            DEBUG_ARG_PARSER("timeout %d\n", pinger->opts.timeout);
         }
         if(strcmp(PINGER_ARG_TTL_CHAR, arg) == 0){
             char* value = SHIFT_ARG(argc, args);
@@ -269,7 +269,7 @@ static int parse_args(pinger_t* pinger, int* argc, char* args[]){
                 pinger->opts.ttl = atoi(value);
             }
             DEBUG_ARG_PARSER("tos 0x%lx\n", pinger->opts.ttl);
-            assert(pinger->opts.ttl >= 0);
+            assert(pinger->opts.ttl > 0);
             
         }
     }
