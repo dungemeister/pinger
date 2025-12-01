@@ -20,7 +20,7 @@
 #include <math.h>
 #include <sys/time.h>
 
-#define SHIFT_ARG(argc, arg) (--(*(argc)) > 0 ? ((arg)++)[0] : (arg)[0])
+#define SHIFT_ARG(argc, args) (--(*(argc)) > 0 ? ((args)++)[0] : (args)[0])
 
 #define PRINT_BUF(buf, size) do{\
                                 char* ptr = buf;\
@@ -36,8 +36,12 @@
                                 }while(0);
 #ifdef DEBUG
     #define DEBUG_ARG_PARSER(msg, ...) printf("[ARG_PARSER]: "msg, ##__VA_ARGS__)
+    #define DEBUG_RESOLVER(msg, ...)   printf("[RESOLVER]: "msg, ##__VA_ARGS__)
+    #define DEBUG_RECEIVER(msg, ...)   printf("[RECEIVER]: "msg, ##__VA_ARGS__)
 #else
     #define DEBUG_ARG_PARSER(msg, ...)
+    #define DEBUG_RESOLVER(msg, ...)
+    #define DEBUG_RECEIVER(msg, ...)
 #endif
 
 #define PINGER_DEFAULT_COUNT        (10)
@@ -46,25 +50,26 @@
 #define PINGER_DEFAULT_TIMEOUT      (1)
 #define PINGER_DEFAULT_INTERVAL     (1.f)
 
-#define PINGER_ARG_COUNT_CHAR       ("-c")
-#define PINGER_ARG_TTL_CHAR         ("-t")
-#define PINGER_ARG_TOS_CHAR         ("-Q")
-#define PINGER_ARG_TIMEOUT_CHAR     ("-w")
-#define PINGER_ARG_INTERVAL_CHAR    ("-i")
+#define PINGER_ARG_COUNT_CHAR               ("-c")
+#define PINGER_ARG_TTL_CHAR                 ("-t")
+#define PINGER_ARG_TOS_CHAR                 ("-Q")
+#define PINGER_ARG_TIMEOUT_CHAR             ("-w")
+#define PINGER_ARG_INTERVAL_CHAR            ("-i")
+#define PINGER_ARG_BIND_INTERFACE_CHAR      ("-b")
 
 static char dst_ipstr[INET6_ADDRSTRLEN];
 
 typedef struct{
     uint16_t seq;
     uint16_t id;
-    struct timeval send_time;
+    struct timeval timestamp;
 }sended_packet_data_t;
 
 typedef struct{
     char* buf;
     char* recv_addr;
     int recv_size;
-    struct timeval recv_timestamp;
+    struct timeval timestamp;
 }received_packet_data_t;
 
 #pragma pack(push, 1)
@@ -108,6 +113,7 @@ typedef struct{
     pinger_opts_t opts;
     pinger_stats_t stats;
     int sock_fd;
+    char* bind_addr;
 }pinger_t;
 
 //Declarations
@@ -125,6 +131,8 @@ static int recv_packet(int sock_fd, struct sockaddr_in* recv_addr, socklen_t* re
 static bool parse_recv_packet(received_packet_data_t* recv_data, sended_packet_data_t* send_data, pinger_stats_t* stats);
 static void init_pinger_stats(pinger_stats_t* stats);
 static void print_pinger_statistics(pinger_stats_t* stats);
+static void help();
+#ifdef PINGER_IMPLEMENTATION
 //Implementation
 static int run_ping(int* argc, char* args[]){
     pinger_t pinger = {0};
@@ -160,55 +168,53 @@ static int run_ping(int* argc, char* args[]){
     }
     set_socket_opts(&pinger);
 
-    if(pinger.opts.bind_addr != NULL){
-        source_addr.sin_addr.s_addr = inet_addr(pinger.opts.bind_addr);
-        if (bind(pinger.sock_fd, (struct sockaddr*)(&source_addr), sizeof(pinger.opts.bind_addr)) < 0) {
+    if(pinger.bind_addr != NULL){
+        printf("Binded addr %s\n", pinger.bind_addr);
+        source_addr.sin_addr.s_addr = inet_addr(pinger.bind_addr);
+        if (bind(pinger.sock_fd, (struct sockaddr*)(&source_addr), sizeof(struct sockaddr)) < 0) {
             return -1;
         }
-
     }
-    strcpy(pinger.stats.dst_host, inet_ntoa(dst_addr.sin_addr));
+    strcpy(pinger.stats.dst_host, pinger.opts.dst_ip);
     struct timeval start_time, end_time;
     gettimeofday(&start_time, NULL);
     for(uint16_t i = 1; i <= pinger.opts.count; i++){
         size_t len = build_icmp_packet(&packet, i);
         sended_packet_data_t sended_data = {.id = packet.header.un.echo.id,
                                             .seq = packet.header.un.echo.sequence,
-                                            .send_time = {0}
+                                            .timestamp = {0}
                                            };
         received_packet_data_t received_data = {0};
 
-        gettimeofday(&sended_data.send_time, NULL);
+        gettimeofday(&sended_data.timestamp, NULL);
         int sended = send_packet(pinger.sock_fd, dst_addr, &packet, len);
         if (sended <= 0) continue;
         pinger.stats.transmitted++;
-        // printf("\nSended %d, seq 0x%x ", sended, ntohs(packet.header.un.echo.sequence));
+        printf("\nSended %d, seq 0x%x ", sended, ntohs(packet.header.un.echo.sequence));
 
         int received = recv_packet(pinger.sock_fd, &recv_addr, &recv_len, recv_buf, sizeof(recv_buf));
+        printf("Rec %d ", received);
         received_data.buf = recv_buf;
         received_data.recv_size = received;
         received_data.recv_addr = inet_ntoa(recv_addr.sin_addr);
         
-        if(received > 0){
-            if(parse_recv_packet(&received_data, &sended_data, &pinger.stats)){
-                float rtt = (received_data.recv_timestamp.tv_sec - sended_data.send_time.tv_sec) * 1000.0 +
-                            (received_data.recv_timestamp.tv_usec - sended_data.send_time.tv_usec) / 1000.0;
-                pinger.stats.min_rtt = fminf(pinger.stats.min_rtt, rtt);
-                pinger.stats.max_rtt = fmaxf(pinger.stats.max_rtt, rtt);
-                pinger.stats.avg_rtt = (pinger.stats.avg_rtt * (pinger.stats.received - 1) + rtt) / pinger.stats.received;
-                pinger.stats.sq_rtt_sum += rtt * rtt;
-                
-                printf(" time=%.3f\n", rtt);
-            }
+        if(parse_recv_packet(&received_data, &sended_data, &pinger.stats)){
+            float rtt = (received_data.timestamp.tv_sec - sended_data.timestamp.tv_sec) * 1000.0 +
+                        (received_data.timestamp.tv_usec - sended_data.timestamp.tv_usec) / 1000.0;
+            pinger.stats.min_rtt = fminf(pinger.stats.min_rtt, rtt);
+            pinger.stats.max_rtt = fmaxf(pinger.stats.max_rtt, rtt);
+            pinger.stats.avg_rtt = (pinger.stats.avg_rtt * (pinger.stats.received - 1) + rtt) / pinger.stats.received;
+            pinger.stats.sq_rtt_sum += rtt * rtt;
+            
+            printf(" time=%.3f\n", rtt);
         }
-        else{
-            printf("no answer yet for icmp_seq=%u\n", ntohs(sended_data.seq));
-        }
-        float diff = (float)(received_data.recv_timestamp.tv_sec - sended_data.send_time.tv_sec);
+        
+        
+        float diff = (float)(received_data.timestamp.tv_sec - sended_data.timestamp.tv_sec) + 
+                     (float)(received_data.timestamp.tv_usec - sended_data.timestamp.tv_usec) / (1000 * 1000);
         float sleep_interval = pinger.opts.interval - diff;
-        if(sleep_interval > 0 && i != pinger.opts.count){
-            printf("sleep %f\n", sleep_interval);
-            sleep((uint32_t)sleep_interval);
+        if(sleep_interval > 0 && i != pinger.opts.count && diff > 0){
+            usleep((uint32_t)(sleep_interval * 1000000));
         }
 
         memset(&packet, 0x0, sizeof(packet));
@@ -271,6 +277,10 @@ static int parse_args(pinger_t* pinger, int* argc, char* args[]){
             assert(pinger->opts.ttl > 0);
             
         }
+        if(strcmp(PINGER_ARG_BIND_INTERFACE_CHAR, arg) == 0){
+            pinger->opts.bind_interface = SHIFT_ARG(argc, args);
+            DEBUG_ARG_PARSER("binded iface %s\n", pinger->opts.bind_interface);
+        }
     }
 
     if(inet_pton(AF_INET, dst_host, &ip) == 1){
@@ -292,6 +302,7 @@ static int parse_args(pinger_t* pinger, int* argc, char* args[]){
 static void print_pinger_opts(pinger_t* pinger){
     printf("Binded interface: %4s\n", pinger->opts.bind_interface);
     printf("Binded address: %s\n", pinger->opts.bind_addr);
+    printf("Resolved binded address: %s\n", pinger->bind_addr);
     printf("Dest address: %4s\n", pinger->opts.dst_ip);
     printf("Dest hostname: %4s\n", pinger->opts.dst_hostname);
     printf("Count: %zu ", pinger->opts.count);
@@ -327,7 +338,7 @@ static int resolve_hostname(pinger_t* pinger, struct addrinfo* res) {
 }
 
 static int resolve_bind_address(pinger_t* pinger) {
-    if(pinger->opts.bind_addr != NULL) {
+    if(pinger->opts.bind_addr != NULL || pinger->opts.bind_interface != NULL) {
         struct ifaddrs *ifAddrs = NULL;
         struct ifaddrs *ifAddrsPtr = NULL;
         if(getifaddrs(&ifAddrs)) {
@@ -349,16 +360,25 @@ static int resolve_bind_address(pinger_t* pinger) {
                     addrPtr = &((struct sockaddr_in6*)(ifAddrsPtr->ifa_addr))->sin6_addr;
                 }
                 inet_ntop(ifAddrsPtr->ifa_addr->sa_family, addrPtr, addrBuffer, sizeof(addrBuffer));
-                if(strstr(pinger->opts.bind_addr, addrBuffer) != NULL) {
-                    printf("Found %s on iface %s\n",addrBuffer, ifAddrsPtr->ifa_name);
+                if(pinger->opts.bind_addr != NULL && strstr(pinger->opts.bind_addr, addrBuffer) != NULL) {
+                    DEBUG_RESOLVER("Found %s on iface %s\n",addrBuffer, ifAddrsPtr->ifa_name);
+                    pinger->bind_addr = inet_ntoa(*(struct in_addr*)addrPtr);
+                    freeifaddrs(ifAddrs);
+                    return 0;
+                }
+                if(pinger->opts.bind_interface != NULL && strstr(ifAddrsPtr->ifa_name, pinger->opts.bind_interface) != NULL) {
+                    DEBUG_RESOLVER("Found %s on iface %s\n",addrBuffer, ifAddrsPtr->ifa_name);
+                    pinger->bind_addr = inet_ntoa(*(struct in_addr*)addrPtr);
                     freeifaddrs(ifAddrs);
                     return 0;
                 }
                 else{
-                    printf("interface is not found\n");
+                    DEBUG_RESOLVER("WARNING: requested interface %s with addr %s\n", pinger->opts.bind_interface, pinger->opts.bind_addr);
+                    DEBUG_RESOLVER("WARNING: found interface %s with addr %s\n", ifAddrsPtr->ifa_name, inet_ntoa(*(struct in_addr*)addrPtr));
                 }
             }   
         }
+        return -1;
     }
     return 0;
 }
@@ -442,18 +462,23 @@ static uint16_t icmp_check_sum(icmp_pkt_t* packet)
 }
 
 static bool parse_recv_packet(received_packet_data_t* recv_data, sended_packet_data_t* send_data, pinger_stats_t* stats){
-    gettimeofday(&recv_data->recv_timestamp, NULL);
-    
+    gettimeofday(&recv_data->timestamp, NULL);
+    if(recv_data->recv_size < 0){
+        printf("*no answer yet for icmp_seq=%u\n", ntohs(send_data->seq));
+        return false;
+    }
     struct iphdr* ip_header = (struct iphdr*)recv_data->buf;
     icmp_pkt_t* icmp = (icmp_pkt_t*)((char*)ip_header + sizeof(struct iphdr));
     
     uint8_t  icmp_type = icmp->header.type;
     uint8_t  icmp_code = icmp->header.code;
-    uint16_t recv_seq  = ntohs(icmp->header.un.echo.sequence);
-    uint16_t recv_id   = ntohs(icmp->header.un.echo.id);
-    // printf("Echo Reply (id=%d, seq=%d)\n", 
-    //        ntohs(icmp->header.un.echo.id),
-    //        ntohs(icmp->header.un.echo.sequence));
+    uint16_t recv_seq  = icmp->header.un.echo.sequence;
+    uint16_t recv_id   = icmp->header.un.echo.id;
+    DEBUG_RECEIVER("Echo Reply (id=0x%x, seq=%d, type=%u)\n", 
+           ntohs(icmp->header.un.echo.id),
+           ntohs(icmp->header.un.echo.sequence),
+           icmp_type);
+        
     if(icmp_type == ICMP_ECHOREPLY){
         printf("From %s: ", recv_data->recv_addr);
         printf("%ld bytes icmp seq=%d ttl=%d ",
@@ -465,6 +490,8 @@ static bool parse_recv_packet(received_packet_data_t* recv_data, sended_packet_d
         return true;
     }
     if(recv_seq != send_data->seq || recv_id != send_data->id){
+        printf("#no answer yet for icmp_seq=%u\n", ntohs(send_data->seq));
+        DEBUG_RECEIVER("0x%x 0x%x 0x%x 0x%x\n", recv_seq, send_data->seq, recv_id, send_data->id);
         return false;
         // PRINT_BUF(recv_data->buf, recv_data->recv_size);
         // printf("received %d ", recv_data->recv_size);
@@ -569,6 +596,7 @@ static bool parse_recv_packet(received_packet_data_t* recv_data, sended_packet_d
             }
         }
     }
+    printf("HZHZ\n");
     return false;    
 }
 
@@ -596,4 +624,15 @@ static void init_pinger_stats(pinger_stats_t* stats){
     stats->transmitted = 0;
     stats->sq_rtt_sum = 0;
 }
+
+static void help(){
+    printf("Usage: pinger <host> <opts>\n");
+    printf("\t opts:\n");
+    printf("\t %s - packets count\n", PINGER_ARG_COUNT_CHAR);
+    printf("\t %s - interval between packets sending\n", PINGER_ARG_INTERVAL_CHAR);
+    printf("\t %s - socket timeout for receving replies\n", PINGER_ARG_TIMEOUT_CHAR);
+    printf("\t %s - IP TOS value\n", PINGER_ARG_TOS_CHAR);
+    printf("\t %s - IP TTL value\n", PINGER_ARG_TTL_CHAR);
+}
+#endif // PINGER_IMPLEMENTATION
 #endif //_PINGER_H
