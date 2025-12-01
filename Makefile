@@ -38,11 +38,15 @@ clean:
 mkdir_tests:
 	mkdir -p ${TESTS_BUILD_DIR}
 
-build_tests:
+build_tests: mkdir_tests
 	cc ${TEST_FLAGS} -o ${TESTS_BUILD_DIR}/tests ${TESTS_DIR}/tests.c
 
-build_test_args: ${ARGS_TEST_DIR}/test_args.c
+build_test_args: mkdir_tests ${ARGS_TEST_DIR}/test_args.c
 	cc ${ARGS_TEST_FLAGS} -o ${ARGS_TEST_BUILD_DIR}/test_args ${ARGS_TEST_DIR}/test_args.c ${LINKER_FLAGS} 
+
+.PHONY: clean_tests
+clean_tests:
+	rm -rf ${TESTS_BUILD_DIR}
 
 .PHONY: install-cap-%
 install-cap-%:

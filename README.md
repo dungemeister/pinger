@@ -67,11 +67,11 @@ To run all test from make
 
 Building
 ```bash
-    make args_tests
+    make test_args
 ```
 Running
 ```bash
-    ./build/unit_tests/args_test
+    ./build/unit_tests/test_args
 ```
 Test analyzes available arguments and checks their correctness
 
