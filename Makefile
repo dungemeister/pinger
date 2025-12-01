@@ -17,9 +17,9 @@ TEST_FLAGS := -g -O2
 all: ${APP} install-cap-${APP}
 
 .PHONY: tests
-tests: mkdir_tests args_test install-cap-test-args_test
+tests: mkdir_tests args_test
 
-
+args_test: build_args_test install-cap-test-args_test
 
 ${APP}: build_dir main.c
 	cc main.c -o ${BUILD_DIR}/${APP} ${LINKER_FLAGS} ${DEBUG_FLAGS}
@@ -41,8 +41,6 @@ mkdir_tests:
 build_tests:
 	cc ${TEST_FLAGS} -o ${TESTS_BUILD_DIR}/tests ${TESTS_DIR}/tests.c
 
-args_test: build_args_test 
-	
 build_args_test: ${ARGS_TEST_DIR}/args_test.c
 	cc ${ARGS_TEST_FLAGS} -o ${ARGS_TEST_BUILD_DIR}/args_test ${ARGS_TEST_DIR}/args_test.c ${LINKER_FLAGS} 
 

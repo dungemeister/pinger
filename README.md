@@ -6,7 +6,7 @@ One header file library. This library coping functionality of network ping util.
 
 # Building
 
-```make
+```bash
     make pinger # to build project
     make install-cap # to set file capabilities
 ```
@@ -46,11 +46,34 @@ int main(int argc, char* argv[]){
 ```
 
 # Constrains
+
 - For main library function run_ping it is necessary to shift executable args list
 
 # Testing
 
 ## Unit testing
+
+To build all tests from make
+```bash
+    make tests
+```
+
+To run all test from make
+```bash
+
+```
+
+### Args parsing
+
+Building
+```bash
+    make args_tests
+```
+Running
+```bash
+    ./build/unit_tests/args_test
+```
+Test analyzes available arguments and checks their correctness
 
 # WARNINGS
 
