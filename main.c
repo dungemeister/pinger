@@ -11,8 +11,10 @@ int main(int argc, char* argv[]){
         fprintf(stderr, "ERROR: Wrong program usage\n");
         help();
         return -1;
-    } 
-    res = run_ping(&argc, &argv[0]);
+    }
+    pinger_t pinger;
+    init_pinger(&pinger);
+    res = run_ping(&pinger, &argc, &argv[0]);
 
     return 0;
 }

@@ -117,7 +117,8 @@ typedef struct{
 }pinger_t;
 
 //Declarations
-static int      run_ping(int* argc, char* args[]);
+static int      init_pinger(pinger_t* pinger);
+static int      run_ping(pinger_t* pinger, int* argc, char* args[]);
 static void     print_pinger_opts(pinger_t* opts);
 static int      parse_args(pinger_t* pinger, int* argc, char* args[]);
 static int      resolve_hostname(pinger_t* pinger, struct addrinfo* res);
@@ -134,10 +135,15 @@ static void print_pinger_statistics(pinger_stats_t* stats);
 static void help();
 #ifdef PINGER_IMPLEMENTATION
 //Implementation
-static int run_ping(int* argc, char* args[]){
-    pinger_t pinger = {0};
+
+static int init_pinger(pinger_t* pinger){
+    memset(pinger, 0x0, sizeof(pinger_t));
+    return 0;
+}
+
+static int run_ping(pinger_t* pinger, int* argc, char* args[]){
     icmp_pkt_t packet = {0};
-    init_pinger_stats(&pinger.stats);
+    init_pinger_stats(&pinger->stats);
 
     char recv_buf[256];
 
@@ -151,34 +157,34 @@ static int run_ping(int* argc, char* args[]){
 
     struct sockaddr_in recv_addr;
     socklen_t recv_len = sizeof(recv_addr);
-    if(parse_args(&pinger, argc, args) != 0){
+    if(parse_args(pinger, argc, args) != 0){
         return -1;
     }
 
-    print_pinger_opts(&pinger);
+    print_pinger_opts(pinger);
     
-    dst_addr.sin_addr.s_addr = inet_addr(pinger.opts.dst_ip);
+    dst_addr.sin_addr.s_addr = inet_addr(pinger->opts.dst_ip);
     if (dst_addr.sin_addr.s_addr == INADDR_NONE) {
         printf("ERROR: Invalid IP address\n");
         return -1;
     }
-    if((pinger.sock_fd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP)) < 0){
+    if((pinger->sock_fd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP)) < 0){
         perror("Fail to create socket");
         return -1;
     }
-    set_socket_opts(&pinger);
+    set_socket_opts(pinger);
 
-    if(pinger.bind_addr != NULL){
-        printf("Binded addr %s\n", pinger.bind_addr);
-        source_addr.sin_addr.s_addr = inet_addr(pinger.bind_addr);
-        if (bind(pinger.sock_fd, (struct sockaddr*)(&source_addr), sizeof(struct sockaddr)) < 0) {
+    if(pinger->bind_addr != NULL){
+        printf("Binded addr %s\n", pinger->bind_addr);
+        source_addr.sin_addr.s_addr = inet_addr(pinger->bind_addr);
+        if (bind(pinger->sock_fd, (struct sockaddr*)(&source_addr), sizeof(struct sockaddr)) < 0) {
             return -1;
         }
     }
-    strcpy(pinger.stats.dst_host, pinger.opts.dst_ip);
+    strcpy(pinger->stats.dst_host, pinger->opts.dst_ip);
     struct timeval start_time, end_time;
     gettimeofday(&start_time, NULL);
-    for(uint16_t i = 1; i <= pinger.opts.count; i++){
+    for(uint16_t i = 1; i <= pinger->opts.count; i++){
         size_t len = build_icmp_packet(&packet, i);
         sended_packet_data_t sended_data = {.id = packet.header.un.echo.id,
                                             .seq = packet.header.un.echo.sequence,
@@ -187,24 +193,24 @@ static int run_ping(int* argc, char* args[]){
         received_packet_data_t received_data = {0};
 
         gettimeofday(&sended_data.timestamp, NULL);
-        int sended = send_packet(pinger.sock_fd, dst_addr, &packet, len);
+        int sended = send_packet(pinger->sock_fd, dst_addr, &packet, len);
         if (sended <= 0) continue;
-        pinger.stats.transmitted++;
+        pinger->stats.transmitted++;
         printf("\nSended %d, seq 0x%x ", sended, ntohs(packet.header.un.echo.sequence));
 
-        int received = recv_packet(pinger.sock_fd, &recv_addr, &recv_len, recv_buf, sizeof(recv_buf));
+        int received = recv_packet(pinger->sock_fd, &recv_addr, &recv_len, recv_buf, sizeof(recv_buf));
         printf("Rec %d ", received);
         received_data.buf = recv_buf;
         received_data.recv_size = received;
         received_data.recv_addr = inet_ntoa(recv_addr.sin_addr);
         
-        if(parse_recv_packet(&received_data, &sended_data, &pinger.stats)){
+        if(parse_recv_packet(&received_data, &sended_data, &pinger->stats)){
             float rtt = (received_data.timestamp.tv_sec - sended_data.timestamp.tv_sec) * 1000.0 +
                         (received_data.timestamp.tv_usec - sended_data.timestamp.tv_usec) / 1000.0;
-            pinger.stats.min_rtt = fminf(pinger.stats.min_rtt, rtt);
-            pinger.stats.max_rtt = fmaxf(pinger.stats.max_rtt, rtt);
-            pinger.stats.avg_rtt = (pinger.stats.avg_rtt * (pinger.stats.received - 1) + rtt) / pinger.stats.received;
-            pinger.stats.sq_rtt_sum += rtt * rtt;
+            pinger->stats.min_rtt = fminf(pinger->stats.min_rtt, rtt);
+            pinger->stats.max_rtt = fmaxf(pinger->stats.max_rtt, rtt);
+            pinger->stats.avg_rtt = (pinger->stats.avg_rtt * (pinger->stats.received - 1) + rtt) / pinger->stats.received;
+            pinger->stats.sq_rtt_sum += rtt * rtt;
             
             printf(" time=%.3f\n", rtt);
         }
@@ -212,22 +218,22 @@ static int run_ping(int* argc, char* args[]){
         
         float diff = (float)(received_data.timestamp.tv_sec - sended_data.timestamp.tv_sec) + 
                      (float)(received_data.timestamp.tv_usec - sended_data.timestamp.tv_usec) / (1000 * 1000);
-        float sleep_interval = pinger.opts.interval - diff;
-        if(sleep_interval > 0 && i != pinger.opts.count && diff > 0){
+        float sleep_interval = pinger->opts.interval - diff;
+        if(sleep_interval > 0 && i != pinger->opts.count && diff > 0){
             usleep((uint32_t)(sleep_interval * 1000000));
         }
 
         memset(&packet, 0x0, sizeof(packet));
     }
     gettimeofday(&end_time, NULL);
-    if(pinger.stats.received > 0){
-        float avg_squares = pinger.stats.sq_rtt_sum / pinger.stats.received;
-        float avg = pinger.stats.avg_rtt;
-        pinger.stats.mdev_rtt = sqrt(avg_squares - avg * avg);
+    if(pinger->stats.received > 0){
+        float avg_squares = pinger->stats.sq_rtt_sum / pinger->stats.received;
+        float avg = pinger->stats.avg_rtt;
+        pinger->stats.mdev_rtt = sqrt(avg_squares - avg * avg);
     }
-    pinger.stats.execution_time = (end_time.tv_sec - start_time.tv_sec) * 1000.0 +
+    pinger->stats.execution_time = (end_time.tv_sec - start_time.tv_sec) * 1000.0 +
              (end_time.tv_usec - start_time.tv_usec) / 1000.0;
-    print_pinger_statistics(&pinger.stats);
+    print_pinger_statistics(&pinger->stats);
     return 0;
 }
 
@@ -249,10 +255,10 @@ static int parse_args(pinger_t* pinger, int* argc, char* args[]){
             DEBUG_ARG_PARSER("count %lu\n", pinger->opts.count);
             assert(pinger->opts.count > 0);
         }
-        if(strcmp(PINGER_ARG_TOS_CHAR, arg) == 0){
-            pinger->opts.cos = atoi(SHIFT_ARG(argc, args));
-            DEBUG_ARG_PARSER("tos 0x%lx\n", pinger->opts.cos);
-            assert(pinger->opts.cos > 0);
+        if(strcmp(PINGER_ARG_TTL_CHAR, arg) == 0){
+            pinger->opts.ttl = atoi(SHIFT_ARG(argc, args));
+            DEBUG_ARG_PARSER("ttl %lu\n", pinger->opts.ttl);
+            assert(pinger->opts.ttl > 0);
         }
         if(strcmp(PINGER_ARG_INTERVAL_CHAR, arg) == 0){
             pinger->opts.interval = atof(SHIFT_ARG(argc, args));
@@ -264,17 +270,17 @@ static int parse_args(pinger_t* pinger, int* argc, char* args[]){
             DEBUG_ARG_PARSER("timeout %lu\n", pinger->opts.timeout);
             assert(pinger->opts.timeout > 0);
         }
-        if(strcmp(PINGER_ARG_TTL_CHAR, arg) == 0){
+        if(strcmp(PINGER_ARG_TOS_CHAR, arg) == 0){
             char* value = SHIFT_ARG(argc, args);
             char* substr = strstr(value, "0x");
             if(substr != NULL){
-                pinger->opts.ttl = strtoul(substr, NULL, 16);
+                pinger->opts.cos = strtoul(substr, NULL, 16);
             }
             else{
-                pinger->opts.ttl = atoi(value);
+                pinger->opts.cos = atoi(value);
             }
-            DEBUG_ARG_PARSER("tos 0x%lx\n", pinger->opts.ttl);
-            assert(pinger->opts.ttl > 0);
+            DEBUG_ARG_PARSER("cos 0x%x\n", pinger->opts.cos);
+            assert(pinger->opts.cos > 0);
             
         }
         if(strcmp(PINGER_ARG_BIND_INTERFACE_CHAR, arg) == 0){
