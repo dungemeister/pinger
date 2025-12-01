@@ -33,15 +33,19 @@ To use library add preprocessor macro
 Main functions is run_ping(), with constrains. Skip program path argument is necessary
 ```c
 int main(int argc, char* argv[]){
+    pinger_t pinger;
+    init_pinger(&pinger);
     argc--;
-    run_ping(&argc, &argv[1]);
+    run_ping(&pinger, &argc, &argv[1]);
 }
 ```
 Or you can use library macro to extract first argument:
 ```c
 int main(int argc, char* argv[]){
     char* prog_path = SHIFT_ARG(&argc, argv);
-    run_ping(&argc, &argv[0]);
+    pinger_t pinger;
+    init_pinger(&pinger);
+    run_ping(&pinger, &argc, &argv[0]);
 }
 ```
 
